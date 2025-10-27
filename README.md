@@ -1,75 +1,138 @@
-# 💬 Django Local Chat — Mini Proyecto con Django Channels
+# 🤝 Documento de Coordinación — Proyecto Django Local Chat
 
-## 📘 Descripción general
+## 👋 Hola Ross
 
-Este proyecto es un **mini chat local** desarrollado con **Django + Django Channels**, cuyo objetivo principal es **entender los conceptos básicos de comunicación en tiempo real** y **comunicación entre procesos (IPC)** en aplicaciones web modernas.
-
-El sistema permite que múltiples usuarios intercambien mensajes en una misma sala de chat, con actualizaciones en tiempo real gracias al uso de **WebSockets**.
-
----
-
-## 👥 Equipo de desarrollo
-
-| Rol | Integrante | Responsabilidad principal |
-|------|-------------|-----------------------------|
-| 🧩 **Iván** | Backend Django clásico | Crear la base del proyecto, modelos, vistas, templates y endpoints HTTP |
-| ⚡ **Ross** | Comunicación en tiempo real | Integrar Django Channels, WebSockets y capa de comunicación entre procesos |
+Este documento es para organizar cómo trabajaremos juntos en nuestro **mini proyecto de chat local con Django Channels**.  
+El objetivo es que tengamos claro **qué hace el proyecto**, **qué parte desarrolla cada uno** y **cómo vamos a integrarlo sin pisarnos el trabajo**.
 
 ---
 
-## 🎯 Objetivo del proyecto
+## 💬 Descripción general del proyecto
 
-Aprender y aplicar los conceptos de:
+Crearemos un **chat en tiempo real** utilizando **Django + Django Channels**.  
+El propósito principal es **aprender los conceptos de comunicación en tiempo real** y **comunicación entre procesos (IPC)** en entornos web modernos.
 
-- Django tradicional (modelos, vistas, templates, URLs)
-- WebSockets y Django Channels
-- Comunicación entre procesos (IPC) mediante Channel Layers
-- Arquitectura básica de un chat local en tiempo real
+El sistema permitirá:
 
----
-
-## 🏗️ Estructura del trabajo
-
-### 🧩 **Iván (Backend / Estructura base)**
-
-1. Crear el repositorio y la estructura inicial del proyecto Django.  
-2. Definir el modelo `Message` con los campos:
-   - `sender` (usuario)
-   - `room` (nombre de la sala)
-   - `text` (contenido del mensaje)
-   - `timestamp` (fecha y hora)
-3. Implementar vistas y rutas:
-   - `/room/<room_name>/` → página HTML de chat.  
-   - `/api/messages/<room_name>/` → historial de mensajes en JSON.  
-4. Crear el template base (`room.html`) con los elementos:
-   - `<div id="messages">`
-   - `<input id="messageInput">`
-   - `<button id="sendBtn">`
-5. Configurar autenticación básica de usuarios.
+- Que varios usuarios se conecten a una misma sala de chat.
+- Enviar y recibir mensajes sin recargar la página (WebSockets).
+- Guardar el historial de mensajes en base de datos.
 
 ---
 
-### ⚡ **Ross (Tiempo real / Django Channels)**
+## 👥 Roles del equipo
 
-1. Instalar y configurar **Django Channels**.  
-2. Modificar `asgi.py` para manejar HTTP y WebSockets.  
-3. Crear el archivo `consumers.py` con la clase `ChatConsumer`:
-   - `connect()` → unir el cliente al grupo de la sala.  
-   - `receive()` → recibir mensajes del cliente, guardarlos y emitirlos.  
-   - `chat_message()` → enviar mensajes a todos los clientes conectados.  
-4. Configurar `CHANNEL_LAYERS`:
-   - Fase 1: `InMemoryChannelLayer` (modo local simple).  
-   - Fase 2: Redis (modo avanzado).  
-5. Agregar el código JavaScript en `room.html` para abrir y gestionar la conexión WebSocket.
+| Integrante | Rol | Descripción |
+|-------------|-----|-------------|
+| **Iván** | Backend Django clásico | Crea la base del proyecto, modelos, vistas, templates y endpoints. |
+| **Ross** | Tiempo real (Channels) | Implementa Django Channels, WebSockets y la comunicación entre procesos. |
 
 ---
 
-| Etapa                 | Descripción                                     | Responsable |
-| --------------------- | ----------------------------------------------- | ----------- |
-| ✅ **1️⃣**             | Crear estructura Django base y modelo `Message` | Iván        |
-| ✅ **2️⃣**             | Implementar vistas y template del chat          | Iván        |
-| ⚙️ **3️⃣**            | Configurar Channels y WebSockets                | Ross        |
-| 🔄 **4️⃣**            | Integrar las partes y probar chat en vivo       | Ambos       |
-| 🚀 **5️⃣ (Opcional)** | Reemplazar `InMemoryChannelLayer` por Redis     | Ross        |
-| 🎨 **6️⃣**            | Mejorar diseño del frontend y UX                | Ambos       |
+## ⚡ Tu rol: Ross — Tiempo real con Django Channels
 
+Tu trabajo será conectar la base del proyecto Django (que dejaré lista) con un sistema de comunicación en tiempo real usando **Channels** y **WebSockets**.
+
+### 🔧 Tareas principales
+
+1. **Instalar y configurar Django Channels**
+   - Instalar el paquete `channels`.
+   - Configurar `settings.py` para incluir `"channels"` y `ASGI_APPLICATION`.
+
+2. **Configurar el enrutador ASGI**
+   - Editar `chatproj/asgi.py` para manejar HTTP y WebSockets con:
+     - `ProtocolTypeRouter`
+     - `AuthMiddlewareStack`
+   - Agregar la ruta WebSocket:
+     ```
+     ws/chat/<room_name>/ → ChatConsumer
+     ```
+
+3. **Crear el archivo `consumers.py`**
+   - Crear la clase `ChatConsumer` que implemente:
+     - `connect()` → unir al grupo de la sala.
+     - `receive()` → recibir y guardar mensajes.
+     - `chat_message()` → enviar mensajes a todos los clientes conectados.
+   - Usar `group_add`, `group_send` y `group_discard`.
+
+4. **Configurar el Channel Layer**
+   - Para pruebas locales:
+     ```python
+     CHANNEL_LAYERS = {
+         "default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}
+     }
+     ```
+   - Luego, agregar configuración para **Redis** (opcional).
+
+5. **Modificar el template `room.html`**
+   - Agregar el script JS para la conexión WebSocket:
+     ```javascript
+     const chatSocket = new WebSocket(
+         "ws://" + window.location.host + "/ws/chat/" + roomName + "/"
+     );
+     ```
+   - Escuchar `onmessage` para mostrar los mensajes en pantalla.
+   - Enviar nuevos mensajes usando `chatSocket.send()`.
+
+6. **Pruebas**
+   - Abrir dos navegadores con la misma sala.
+   - Enviar mensajes y confirmar que se actualicen instantáneamente.
+   - Verificar que los mensajes se guarden en la base de datos.
+
+---
+
+## 🧱 Qué dejará listo Iván
+
+Cuando empieces, ya vas a tener:
+
+- La estructura base del proyecto Django (`chatproj/` y `chat/`).
+- El modelo `Message` con:
+  - `sender`, `room`, `text`, `timestamp`.
+- Migraciones aplicadas y base de datos configurada.
+- Vistas y rutas:
+  - `/room/<room_name>/` → muestra la sala.
+  - `/api/messages/<room_name>/` → historial JSON.
+- Template `room.html` con:
+  - `<div id="messages">`
+  - `<input id="messageInput">`
+  - `<button id="sendBtn">`
+
+Tu tarea será enchufar **Channels** y **WebSockets** sobre esta base.
+
+---
+
+## 🔄 Flujo de trabajo entre nosotros
+
+1. **Iván**
+   - Crea la base Django y sube el proyecto al repositorio (`main`).
+2. **Ross**
+   - Crea una nueva rama (`realtime` o `channels`).
+   - Implementa Channels, Consumers y JS WebSocket.
+3. **Integración**
+   - Ambos prueban localmente.
+   - Se hace **merge** de la rama de Ross en `main`.
+4. **Prueba final**
+   - Confirmar que los mensajes se envían y reciben en tiempo real.
+
+---
+
+## 🗺️ Roadmap (plan de avance)
+
+| Etapa | Descripción | Responsable |
+|--------|--------------|-------------|
+| 1️⃣ | Crear estructura Django base y modelo `Message` | Iván |
+| 2️⃣ | Implementar vistas y template del chat | Iván |
+| 3️⃣ | Configurar Channels y WebSockets | Ross |
+| 4️⃣ | Integrar las partes y probar el chat en vivo | Ambos |
+| 5️⃣ | (Opcional) Reemplazar `InMemoryChannelLayer` por Redis | Ross |
+| 6️⃣ | Mejorar diseño del frontend | Ambos |
+
+---
+
+## 💡 Recomendaciones de trabajo
+
+### 📂 Control de versiones (Git)
+- Trabajemos en **ramas separadas** (`backend`, `channels`, `main`).
+- Hacer commits pequeños y descriptivos:
+  ```bash
+  git commit -m "Agrega ChatConsumer y configuración de Channels"
