@@ -1,91 +1,173 @@
+// static/js/chat.js
 document.addEventListener("DOMContentLoaded", () => {
-    const messagesDiv = document.getElementById("messages");
-    const roomName = messagesDiv.dataset.roomName;  // <- viene del data-room-name en el HTML
-    const input = document.getElementById("messageInput");
-    const sendBtn = document.getElementById("sendBtn");
+  // --- Elementos de la vista ---
+  const messagesDiv = document.getElementById("messages");
+  const input = document.getElementById("messageInput");
+  const sendBtn = document.getElementById("sendBtn");
 
-    if (!roomName) {
-        console.error("No se pudo obtener roomName desde el template.");
+  
+  const roomName = messagesDiv?.dataset?.roomName;
+
+  if (!messagesDiv || !roomName) {
+    console.error("Faltan elementos o data-room-name en el template.");
+    return;
+  }
+
+  
+  let currentUser = sessionStorage.getItem("chat_name");
+  if (!currentUser) {
+    const fromTemplate = messagesDiv?.dataset?.user;
+    const n = fromTemplate || prompt("Ross") || "Ross";
+    currentUser = (n || "").trim() || "Ross";
+    sessionStorage.setItem("chat_name", currentUser);
+  }
+
+  // ---------- Utilidades ----------
+  function scrollToBottom() {
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  }
+
+  // Si tu endpoint POST exige CSRF, toma el token de la cookie
+  function getCookie(name) {
+    const cookieStr = document.cookie || "";
+    return cookieStr
+      .split("; ")
+      .find((row) => row.startsWith(name + "="))
+      ?.split("=")[1];
+  }
+  const csrftoken = getCookie("csrftoken");
+
+  // Minimísimo escape para evitar inyectar HTML
+  function escapeHtml(s) {
+    return String(s)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;");
+  }
+
+  
+  function drawMessage(msg) {
+    // Historial: {timestamp, sender, text}
+    // WS:        {user, message}
+    const ts =
+      msg.timestamp ||
+      new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const sender = msg.sender || msg.user || "Alguien";
+    const text = msg.text || msg.message || "";
+
+    const line = document.createElement("div");
+    line.classList.add("message-line");
+    line.innerHTML = `
+      <span class="timestamp">${ts}</span>
+      <span class="sender">${escapeHtml(sender)}:</span>
+      <span class="text">${escapeHtml(text)}</span>
+    `;
+    messagesDiv.appendChild(line);
+  }
+
+  
+  async function loadHistory() {
+    try {
+      const res = await fetch(`/api/messages/${encodeURIComponent(roomName)}/`);
+      if (!res.ok) {
+        console.error("Error historial:", res.status, await res.text());
         return;
+      }
+      const data = await res.json();
+      messagesDiv.innerHTML = "";
+      (data.messages || []).forEach(drawMessage);
+      scrollToBottom();
+    } catch (e) {
+      console.error("Error cargando historial:", e);
     }
+  }
 
-    // Cargar historial de mensajes desde el endpoint Django
-    async function loadHistory() {
-        try {
-            const response = await fetch(`/api/messages/${roomName}/`);
-            if (!response.ok) {
-                console.error("Error al pedir historial:", response.status);
-                return;
-            }
+  // ---------- 2) WebSocket (tiempo real) ----------
+  let chatSocket = null;
+  let reconnectTimer = null;
 
-            const data = await response.json();
-            messagesDiv.innerHTML = "";
+  function connectWS() {
+    const scheme = location.protocol === "https:" ? "wss" : "ws";
+    chatSocket = new WebSocket(
+      `${scheme}://${location.host}/ws/chat/${encodeURIComponent(roomName)}/`
+    );
 
-            data.messages.forEach(msg => {
-                const line = document.createElement("div");
-                line.classList.add("message-line");
-                line.innerHTML = `
-                    <span class="timestamp">${msg.timestamp}</span>
-                    <span class="sender">${msg.sender}:</span>
-                    <span class="text">${msg.text}</span>
-                `;
-                messagesDiv.appendChild(line);
-            });
-
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
-        } catch (err) {
-            console.error("Error cargando historial:", err);
-        }
-    }
-
-    loadHistory();
-
-    // Por ahora el botón solo limpia el input y loguea.
-    sendBtn.onclick = async function () {
-        const text = input.value.trim();
-        if (text === "") {
-            return;
-        }
-
-        // 1. mandar al backend
-        try {
-            const response = await fetch(`/api/send/${roomName}/`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ text: text })
-            });
-
-            if (!response.ok) {
-                console.error("Error al enviar mensaje:", response.status);
-                return;
-            }
-
-            const saved = await response.json();
-
-            // 2. agregar al chat visualmente
-            const line = document.createElement("div");
-            line.classList.add("message-line");
-            line.innerHTML = `
-                <span class="timestamp">${saved.timestamp}</span>
-                <span class="sender">${saved.sender}:</span>
-                <span class="text">${saved.text}</span>
-            `;
-            messagesDiv.appendChild(line);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
-
-            // 3. limpiar input
-            input.value = "";
-            input.focus();
-        } catch (err) {
-            console.error("Fallo al enviar mensaje:", err);
-        }
+    chatSocket.onopen = () => {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      console.log("WS conectado");
     };
-    input.addEventListener("keydown", function (e) {
-        if (e.key === "Enter") {
-            sendBtn.click();
-        }
-    });
 
+    chatSocket.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        drawMessage(data);
+        scrollToBottom();
+      } catch (err) {
+        console.error("Mensaje WS inválido:", err);
+      }
+    };
+
+    chatSocket.onerror = (e) => {
+      console.warn("WS error:", e);
+    };
+
+    chatSocket.onclose = () => {
+      console.warn("WS cerrado. Reintentando en 2s…");
+      reconnectTimer = setTimeout(connectWS, 2000);
+    };
+  }
+
+  // ---------- 3) Enviar: WS (tiempo real) + POST (persistencia) ----------
+  async function sendMessage() {
+    const text = input.value.trim();
+    if (!text) return;
+
+    const wsPayload = { user: currentUser, message: text };
+
+    // a) Tiempo real
+    if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+      chatSocket.send(JSON.stringify(wsPayload));
+    } else {
+      console.warn("WS no abierto; se enviará solo por HTTP.");
+    }
+
+    // b) Guardar en BD (mantiene compatibilidad con tu API)
+    try {
+      await fetch(`/api/send/${encodeURIComponent(roomName)}/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(csrftoken ? { "X-CSRFToken": csrftoken } : {}),
+        },
+        body: JSON.stringify({ text, sender: currentUser }),
+      });
+    } catch (e) {
+      console.error("Error guardando por API:", e);
+    }
+
+    input.value = "";
+    input.focus();
+  }
+
+  // ---------- 4) Eventos de UI ----------
+  sendBtn?.addEventListener("click", sendMessage);
+  input?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") sendMessage();
+  });
+
+  // ---------- 5) Arranque ----------
+  loadHistory();
+  connectWS();
+
+  
+  window.changeName = function () {
+    sessionStorage.removeItem("chat_name");
+    const n = prompt("Nuevo nombre:") || "Anónimo";
+    const u = (n || "").trim() || "Anónimo";
+    sessionStorage.setItem("chat_name", u);
+    alert(`Nombre actualizado a: ${u}`);
+  };
 });
